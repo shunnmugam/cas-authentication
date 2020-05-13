@@ -19,6 +19,7 @@ var AUTH_TYPE = {
  * @property {string}  cas_url
  * @property {string}  service_url
  * @property {('1.0'|'2.0'|'3.0'|'saml1.1')} [cas_version='3.0']
+ * @property {number} [cas_port=443]
  * @property {boolean} [renew=false]
  * @property {boolean} [is_dev_mode=false]
  * @property {string}  [dev_mode_user='']
@@ -43,6 +44,8 @@ function CASAuthentication(options) {
     if (options.service_url === undefined) {
         throw new Error( 'CAS Authentication requires a service_url parameter.');
     }
+
+    this.cas_port = options.cas_port ? options.cas_port : 443;
 
     this.cas_version = options.cas_version !== undefined ? options.cas_version : '3.0';
 
@@ -148,7 +151,6 @@ function CASAuthentication(options) {
     var parsed_cas_url   = url.parse(this.cas_url);
     this.request_client  = parsed_cas_url.protocol === 'http:' ? http : https;
     this.cas_host        = parsed_cas_url.hostname;
-    this.cas_port        = parsed_cas_url.protocol === 'http:' ? 80 : 443;
     this.cas_path        = parsed_cas_url.pathname;
     this.return_to       = options.return_to;
 
@@ -276,13 +278,14 @@ CASAuthentication.prototype.logout = function(req, res, next) {
             });
         } else {
             req.session[ this.session_name ] = null;
+            req.session = null;
         }
     }
     // Otherwise, just destroy the CAS session variables.
     else {
         delete req.session[ this.session_name ];
         if (this.session_info) {
-          delete req.session[ this.session_info ];
+            delete req.session[ this.session_info ];
         }
     }
 
@@ -313,18 +316,18 @@ CASAuthentication.prototype._handleTicket = function(req, res, next) {
     else if (this.cas_version === 'saml1.1'){
         var now = new Date();
         var post_data = '<?xml version="1.0" encoding="utf-8"?>\n' +
-                        '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">\n' +
-                        '  <SOAP-ENV:Header/>\n' +
-                        '  <SOAP-ENV:Body>\n' +
-                        '    <samlp:Request xmlns:samlp="urn:oasis:names:tc:SAML:1.0:protocol" MajorVersion="1"\n' +
-                        '      MinorVersion="1" RequestID="_' + req.host + '.' + now.getTime() + '"\n' +
-                        '      IssueInstant="' + now.toISOString() + '">\n' +
-                        '      <samlp:AssertionArtifact>\n' +
-                        '        ' + req.query.ticket + '\n' +
-                        '      </samlp:AssertionArtifact>\n' +
-                        '    </samlp:Request>\n' +
-                        '  </SOAP-ENV:Body>\n' +
-                        '</SOAP-ENV:Envelope>';
+            '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">\n' +
+            '  <SOAP-ENV:Header/>\n' +
+            '  <SOAP-ENV:Body>\n' +
+            '    <samlp:Request xmlns:samlp="urn:oasis:names:tc:SAML:1.0:protocol" MajorVersion="1"\n' +
+            '      MinorVersion="1" RequestID="_' + req.host + '.' + now.getTime() + '"\n' +
+            '      IssueInstant="' + now.toISOString() + '">\n' +
+            '      <samlp:AssertionArtifact>\n' +
+            '        ' + req.query.ticket + '\n' +
+            '      </samlp:AssertionArtifact>\n' +
+            '    </samlp:Request>\n' +
+            '  </SOAP-ENV:Body>\n' +
+            '</SOAP-ENV:Envelope>';
 
         requestOptions.method = 'POST';
         requestOptions.path = url.format({
