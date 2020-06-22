@@ -153,6 +153,7 @@ function CASAuthentication(options) {
     this.return_to       = options.return_to;
 
     this.service_url     = options.service_url;
+    this.service_url_for_api = options.service_url_for_api;
 
     this.renew           = options.renew !== undefined ? !!options.renew : false;
 
@@ -261,6 +262,118 @@ CASAuthentication.prototype._login = function(req, res, next) {
     }));
 };
 
+CASAuthentication.prototype._apiLogin = function(req, resp, next) {
+    var querystring = require('querystring');
+    var postData = querystring.stringify({
+        username: encodeURIComponent(req.body.username),
+        password: encodeURIComponent(req.body.password)
+    })
+
+    
+    var requestOptions = {
+        host: this.cas_host,
+        port: this.cas_port,
+        path: this.cas_path+"/v1/tickets",
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          }
+    };
+
+    var req1 = this.request_client.request(requestOptions, (res) => {
+        var result = '';
+        res.on('data', function (chunk) {
+          result += chunk;
+        });
+        res.on('end', () => {
+            if(res.headers.location === undefined) {
+                return resp.json({
+                    ...JSON.parse(result),
+                    success : false
+                })
+            }
+            var arr = res.headers.location.split("/");
+            var tgt = arr[arr.length - 1];
+
+            var postData2 = querystring.stringify({
+                service: this.service_url_for_api,
+            })
+
+            var requestOptions2 = {
+                host: this.cas_host,
+                port: this.cas_port,
+                path: this.cas_path+"/v1/tickets/"+tgt,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                }
+            } 
+            var req2 = this.request_client.request(requestOptions2, (res) => {
+                var resultw = '';
+                res.on('data', function (chunk) {
+                    resultw += chunk;
+                });
+
+                res.on('end',  () => {
+                    req.query = {}
+                    req.query.ticket = resultw;
+                    var ss = encodeURI(this.service_url_for_api)
+                    var r3 = this.request_client.request({
+                        host: 'muerp1.mu-sigma.com',
+                        port: 443,
+                        method: 'GET',
+                        path: `/cas/p3/serviceValidate?service=${ss}&ticket=${resultw}&format=json`
+                    }, (res3) => {
+                        var resultf = '';
+                        res3.on('data', function (chunk) {
+                            resultf += chunk;
+                        });
+
+                        res3.on('end',  () => {
+                            resultf = JSON.parse(resultf)
+                            var user;
+                            if(resultf.serviceResponse.authenticationSuccess) {
+                                user = resultf.serviceResponse.authenticationSuccess.user;
+                                req.session[ this.session_name ] = user;
+                                resp.json({
+                                    user,
+                                    success: true
+                                })
+                            } else {
+                                resp.json({
+                                    ...resultf.serviceResponse.authenticationFailure,
+                                    success : false
+                                })
+                            }
+                            
+                        })
+
+                    })
+                    r3.write("");
+                    r3.end();
+                })
+          })
+          // req error
+            req2.on('error', function (err) {
+                console.log(err);
+                throw Error(err);
+            });
+
+            req2.write(postData2);
+            req2.end();
+        });
+    })
+
+    // req error
+    req1.on('error', function (err) {
+        console.log(err);
+        throw Error(err);
+    });
+
+    req1.write(postData);
+    req1.end();
+}
+
 /**
  * Logout the currently logged in CAS user.
  */
@@ -268,15 +381,11 @@ CASAuthentication.prototype.logout = function(req, res, next) {
 
     // Destroy the entire session if the option is set.
     if (this.destroy_session) {
-        if(req.session.destroy) {
-            req.session.destroy(function(err) {
-                if (err) {
-                    console.log(err);
-                }
-            });
-        } else {
-            req.session[ this.session_name ] = null;
-        }
+        req.session.destroy(function(err) {
+            if (err) {
+                console.log(err);
+            }
+        });
     }
     // Otherwise, just destroy the CAS session variables.
     else {
@@ -309,6 +418,8 @@ CASAuthentication.prototype._handleTicket = function(req, res, next) {
                 ticket: req.query.ticket
             }
         });
+
+        console.log(requestOptions);
     }
     else if (this.cas_version === 'saml1.1'){
         var now = new Date();
