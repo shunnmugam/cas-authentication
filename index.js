@@ -381,11 +381,16 @@ CASAuthentication.prototype.logout = function(req, res, next) {
 
     // Destroy the entire session if the option is set.
     if (this.destroy_session) {
-        req.session.destroy(function(err) {
-            if (err) {
-                console.log(err);
-            }
-        });
+        if(req.session.destroy) {
+            req.session.destroy(function(err) {
+                if (err) {
+                    console.log(err);
+                }
+            });
+        } else {
+            req.session[ this.session_name ] = null;
+            req.session = null;
+        }
     }
     // Otherwise, just destroy the CAS session variables.
     else {
@@ -419,7 +424,6 @@ CASAuthentication.prototype._handleTicket = function(req, res, next) {
             }
         });
 
-        console.log(requestOptions);
     }
     else if (this.cas_version === 'saml1.1'){
         var now = new Date();
