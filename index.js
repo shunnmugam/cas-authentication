@@ -474,7 +474,12 @@ CASAuthentication.prototype._handleTicket = function(req, res, next) {
                     if (this.session_info) {
                         req.session[ this.session_info ] = attributes || {};
                     }
-                    res.redirect(req.session.cas_return_to);
+                    res.session.save(err => {
+                        if (err) {
+                            return next(err);
+                        } 
+                        res.redirect(req.session.cas_return_to);
+                    });
                 }
             }.bind(this));
         }.bind(this));
